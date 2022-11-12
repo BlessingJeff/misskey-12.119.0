@@ -68,7 +68,8 @@ export const limiter = (limitation: IEndpointMeta['limit'] & { key: NonNullable<
 			logger.debug(`${actor} ${limitation.key} max remaining: ${info.remaining}`);
 
 			if (info.remaining === 0) {
-				reject('RATE_LIMIT_EXCEEDED');
+				// reject('RATE_LIMIT_EXCEEDED');
+				ok();
 			} else {
 				ok();
 			}
