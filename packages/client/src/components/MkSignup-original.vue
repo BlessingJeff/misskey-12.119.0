@@ -5,11 +5,17 @@
 		<template #prefix><i class="fas fa-key"></i></template>
 	</MkInput>
 	<MkInput v-model="username" class="_formBlock" type="text" pattern="^[a-zA-Z0-9_]{1,20}$" :spellcheck="false" required data-cy-signup-username @update:modelValue="onChangeUsername">
-		<template #label>Wallet Username<div v-tooltip:dialog="i18n.ts.usernameInfo" class="_button _help"><i class="far fa-question-circle"></i></div></template>
+		<template #label>{{ i18n.ts.username }} <div v-tooltip:dialog="i18n.ts.usernameInfo" class="_button _help"><i class="far fa-question-circle"></i></div></template>
 		<template #prefix>@</template>
 		<template #suffix>@{{ host }}</template>
 		<template #caption>
-			<span v-if="usernameState === 'unavailable'" style="color: var(--error)"><i class="fas fa-exclamation-triangle fa-fw"></i> {{ i18n.ts.unavailable }}</span>
+			<span v-if="usernameState === 'wait'" style="color:#999"><i class="fas fa-spinner fa-pulse fa-fw"></i> {{ i18n.ts.checking }}</span>
+			<span v-else-if="usernameState === 'ok'" style="color: var(--success)"><i class="fas fa-check fa-fw"></i> {{ i18n.ts.available }}</span>
+			<span v-else-if="usernameState === 'unavailable'" style="color: var(--error)"><i class="fas fa-exclamation-triangle fa-fw"></i> {{ i18n.ts.unavailable }}</span>
+			<span v-else-if="usernameState === 'error'" style="color: var(--error)"><i class="fas fa-exclamation-triangle fa-fw"></i> {{ i18n.ts.error }}</span>
+			<span v-else-if="usernameState === 'invalid-format'" style="color: var(--error)"><i class="fas fa-exclamation-triangle fa-fw"></i> {{ i18n.ts.usernameInvalidFormat }}</span>
+			<span v-else-if="usernameState === 'min-range'" style="color: var(--error)"><i class="fas fa-exclamation-triangle fa-fw"></i> {{ i18n.ts.tooShort }}</span>
+			<span v-else-if="usernameState === 'max-range'" style="color: var(--error)"><i class="fas fa-exclamation-triangle fa-fw"></i> {{ i18n.ts.tooLong }}</span>
 		</template>
 	</MkInput>
 	<MkInput v-if="instance.emailRequiredForSignup" v-model="email" class="_formBlock" :debounce="true" type="email" :spellcheck="false" required data-cy-signup-email @update:modelValue="onChangeEmail">
@@ -27,14 +33,8 @@
 			<span v-else-if="emailState === 'error'" style="color: var(--error)"><i class="fas fa-exclamation-triangle fa-fw"></i> {{ i18n.ts.error }}</span>
 		</template>
 	</MkInput>
-	<MkInput v-model="wallet_password" class="_formBlock" type="password" autocomplete="new-password" required data-cy-signup-password @update:modelValue="onChangePasswordWallet">
-		<template #label>Wallet Password</template>
-		<template #prefix><i class="fas fa-lock"></i></template>
-		<template #caption>
-		</template>
-	</MkInput>
 	<MkInput v-model="password" class="_formBlock" type="password" autocomplete="new-password" required data-cy-signup-password @update:modelValue="onChangePassword">
-		<template #label>Password for Misskey</template>
+		<template #label>{{ i18n.ts.password }}</template>
 		<template #prefix><i class="fas fa-lock"></i></template>
 		<template #caption>
 			<span v-if="passwordStrength == 'low'" style="color: var(--error)"><i class="fas fa-exclamation-triangle fa-fw"></i> {{ i18n.ts.weakPassword }}</span>
@@ -43,7 +43,7 @@
 		</template>
 	</MkInput>
 	<MkInput v-model="retypedPassword" class="_formBlock" type="password" autocomplete="new-password" required data-cy-signup-password-retype @update:modelValue="onChangePasswordRetype">
-		<template #label>Confirm Password</template>
+		<template #label>{{ i18n.ts.password }} ({{ i18n.ts.retype }})</template>
 		<template #prefix><i class="fas fa-lock"></i></template>
 		<template #caption>
 			<span v-if="passwordRetypeState == 'match'" style="color: var(--success)"><i class="fas fa-check fa-fw"></i> {{ i18n.ts.passwordMatched }}</span>
@@ -67,7 +67,6 @@
 import { } from 'vue';
 import getPasswordStrength from 'syuilo-password-strength';
 import { toUnicode } from 'punycode/';
-import axios from 'axios';
 import MkButton from './MkButton.vue';
 import MkInput from './form/input.vue';
 import MkSwitch from './form/switch.vue';
@@ -96,7 +95,6 @@ let recaptcha = $ref();
 
 let username: string = $ref('');
 let password: string = $ref('');
-let wallet_password: string = $ref('');
 let retypedPassword: string = $ref('');
 let invitationCode: string = $ref('');
 let email = $ref('');
@@ -180,15 +178,6 @@ function onChangePassword(): void {
 	passwordStrength = strength > 0.7 ? 'high' : strength > 0.3 ? 'medium' : 'low';
 }
 
-function onChangePasswordWallet(): void {
-	if (password === '') {
-		passwordStrength = '';
-		return;
-	}
-	// const strength = getPasswordStrength(password);
-	// passwordStrength = strength > 0.7 ? 'high' : strength > 0.3 ? 'medium' : 'low';
-}
-
 function onChangePasswordRetype(): void {
 	if (retypedPassword === '') {
 		passwordRetypeState = null;
@@ -199,64 +188,46 @@ function onChangePasswordRetype(): void {
 }
 
 function onSubmit(): void {
-	const post_data = { username: username, wallet_password: wallet_password };
 	if (submitting) return;
 	submitting = true;
-	let func_resp = login_check(post_data);
-	func_resp.then((data) => {
-		console.log('func resp data',data);
-		if (data !== 'false' || data !== false) {
-			console.log('inside to if');
-			if (data.username === username) {
-				console.log('username is good');
-				os.api('signup', {
-					username,
-					password,
-					wallet_password,    
-					emailAddress: 'test@example.com',
-					invitationCode: '',
-					'hcaptcha-response': hCaptchaResponse,
-					'g-recaptcha-response': reCaptchaResponse,
-				}).then(() => {
-					console.log('inside then');
-					os.api('signin', {
-						username,
-						password,
-					}).then(res => {
-						emit('signup', res);				
-						if (props.autoSet) {
-							login(res.i);
-						}
-					});
-				}).catch(() => {
-					submitting = false;
-					console.log(submitting);	
-					os.alert({
-						type: 'error',
-						text: i18n.ts.somethingHappened,
-					});
-				});
-			} else {
-				os.alert({
-					type: 'error',
-					text: 'Invalid Wallet Username',
-				});
-			}
+
+	os.api('signup', {
+		username,
+		password,
+		emailAddress: email,
+		invitationCode,
+		'hcaptcha-response': hCaptchaResponse,
+		'g-recaptcha-response': reCaptchaResponse,
+	}).then(() => {
+		if (instance.emailRequiredForSignup) {
+			os.alert({
+				type: 'success',
+				title: i18n.ts._signup.almostThere,
+				text: i18n.t('_signup.emailSent', { email }),
+			});
+			emit('signupEmailPending');
+		} else {
+			os.api('signin', {
+				username,
+				password,
+			}).then(res => {
+				emit('signup', res);
+
+				if (props.autoSet) {
+					login(res.i);
+				}
+			});
 		}
 	}).catch(() => {
 		submitting = false;
-		console.log(submitting);
+		hcaptcha.reset?.();
+		recaptcha.reset?.();
+
 		os.alert({
 			type: 'error',
-			text: 'Invaid Credentials',
+			text: i18n.ts.somethingHappened,
 		});
 	});
-}
-
-async function login_check(post_data) {
-	let res = await axios.post('http://localhost:11011/login_check', post_data);
-	let data = res.data;
-	return data;
 }
 </script>
 
